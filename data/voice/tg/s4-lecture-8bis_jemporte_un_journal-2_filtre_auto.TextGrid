@@ -1,0 +1,172 @@
+File type = "ooTextFile"
+Object class = "TextGrid"
+
+xmin = 0 
+xmax = 3.4133333333333336 
+tiers? <exists> 
+size = 2 
+item []: 
+    item [1]:
+        class = "IntervalTier" 
+        name = "segm" 
+        xmin = 0 
+        xmax = 3.4133333333333336 
+        intervals: size = 27 
+        intervals [1]:
+            xmin = 0 
+            xmax = 1.0185095977295067 
+            text = "" 
+        intervals [2]:
+            xmin = 1.0185095977295067 
+            xmax = 1.1841666666666666 
+            text = "" 
+        intervals [3]:
+            xmin = 1.1841666666666666 
+            xmax = 1.2941666666666642 
+            text = "a" 
+        intervals [4]:
+            xmin = 1.2941666666666642 
+            xmax = 1.3597213231477416 
+            text = "" 
+        intervals [5]:
+            xmin = 1.3597213231477416 
+            xmax = 1.4191666666666667 
+            text = "" 
+        intervals [6]:
+            xmin = 1.4191666666666667 
+            xmax = 1.5091666666666648 
+            text = "a" 
+        intervals [7]:
+            xmin = 1.5091666666666648 
+            xmax = 1.5385831661822353 
+            text = "" 
+        intervals [8]:
+            xmin = 1.5385831661822353 
+            xmax = 1.6491666666666829 
+            text = "" 
+        intervals [9]:
+            xmin = 1.6491666666666829 
+            xmax = 1.8991666666666667 
+            text = "" 
+        intervals [10]:
+            xmin = 1.8991666666666667 
+            xmax = 2.0091666666666645 
+            text = "a" 
+        intervals [11]:
+            xmin = 2.0091666666666645 
+            xmax = 2.0341666666666747 
+            text = "" 
+        intervals [12]:
+            xmin = 2.0341666666666747 
+            xmax = 2.119166666666667 
+            text = "" 
+        intervals [13]:
+            xmin = 2.119166666666667 
+            xmax = 2.1491666666666664 
+            text = "a" 
+        intervals [14]:
+            xmin = 2.1491666666666664 
+            xmax = 2.154166666666672 
+            text = "" 
+        intervals [15]:
+            xmin = 2.154166666666672 
+            xmax = 2.159166666666667 
+            text = "" 
+        intervals [16]:
+            xmin = 2.159166666666667 
+            xmax = 2.1991666666666663 
+            text = "a" 
+        intervals [17]:
+            xmin = 2.1991666666666663 
+            xmax = 2.204166666666671 
+            text = "" 
+        intervals [18]:
+            xmin = 2.204166666666671 
+            xmax = 2.224166666666667 
+            text = "" 
+        intervals [19]:
+            xmin = 2.224166666666667 
+            xmax = 2.279166666666666 
+            text = "a" 
+        intervals [20]:
+            xmin = 2.279166666666666 
+            xmax = 2.2841666666666693 
+            text = "" 
+        intervals [21]:
+            xmin = 2.2841666666666693 
+            xmax = 2.349166666666667 
+            text = "" 
+        intervals [22]:
+            xmin = 2.349166666666667 
+            xmax = 2.454166666666665 
+            text = "a" 
+        intervals [23]:
+            xmin = 2.454166666666665 
+            xmax = 2.53416666666668 
+            text = "" 
+        intervals [24]:
+            xmin = 2.53416666666668 
+            xmax = 2.559166666666667 
+            text = "" 
+        intervals [25]:
+            xmin = 2.559166666666667 
+            xmax = 2.6841666666666644 
+            text = "a" 
+        intervals [26]:
+            xmin = 2.6841666666666644 
+            xmax = 2.7031043340534318 
+            text = "" 
+        intervals [27]:
+            xmin = 2.7031043340534318 
+            xmax = 3.4133333333333336 
+            text = "" 
+    item [2]:
+        class = "IntervalTier" 
+        name = "syll" 
+        xmin = 0 
+        xmax = 3.4133333333333336 
+        intervals: size = 11 
+        intervals [1]:
+            xmin = 0 
+            xmax = 1.0185095977295067 
+            text = "" 
+        intervals [2]:
+            xmin = 1.0185095977295067 
+            xmax = 1.3597213231477416 
+            text = "" 
+        intervals [3]:
+            xmin = 1.3597213231477416 
+            xmax = 1.5385831661822353 
+            text = "" 
+        intervals [4]:
+            xmin = 1.5385831661822353 
+            xmax = 1.6491666666666829 
+            text = "" 
+        intervals [5]:
+            xmin = 1.6491666666666829 
+            xmax = 2.0341666666666747 
+            text = "" 
+        intervals [6]:
+            xmin = 2.0341666666666747 
+            xmax = 2.154166666666672 
+            text = "" 
+        intervals [7]:
+            xmin = 2.154166666666672 
+            xmax = 2.204166666666671 
+            text = "" 
+        intervals [8]:
+            xmin = 2.204166666666671 
+            xmax = 2.2841666666666693 
+            text = "" 
+        intervals [9]:
+            xmin = 2.2841666666666693 
+            xmax = 2.53416666666668 
+            text = "" 
+        intervals [10]:
+            xmin = 2.53416666666668 
+            xmax = 2.702054580912476 
+            text = "" 
+        intervals [11]:
+            xmin = 2.702054580912476 
+            xmax = 3.4133333333333336 
+            text = "" 

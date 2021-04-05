@@ -1,0 +1,177 @@
+---
+title: "Corpus Preparation"
+subtitle: "Submitted to Interspeech 2021"
+output: html_notebook
+author: Xiao Xiao 
+---
+
+This documents contains scripts that load assets for references for comparisons with subject recordings.
+There's also some comparison within the reference corpus to see the quantitative difference between original and stylized pitch curves (very similar) and between pairs of phrases.
+
+# Load assets for reference phrases
+
+```{r}
+library("tidyverse")
+library("rPraat") # to load Praat objects
+library("zoo") # for interpolation of gesture data
+source("utils/hz2st.r")
+
+# Reference frequency for conversion from hertz to semitones
+ref_freq <- 116.54
+
+# A vector with all the phrases
+ref_phrases<- c("2_tu_parais_tres_soucieux", "2bis_tu_paraitrais_soucieux",
+                "7_Jean_leve_son_verre", "7bis_Jenleve_son_verre", 
+                "8_jean_porte_un_journal","8bis_jemporte_un_journal",
+                "10_jean_saigne_beaucoup", "10bis_jenseigne_beaucoup",
+                "11_jean_cadre_la_photo", "11bis_jencadre_la_photo",
+                "21_cest_la_mort_sure", "21bis_cest_la_morsure")      
+ 
+# All the reference pitchtiers, not interpolated
+ref_pts <- lapply(ref_phrases, function(name) {
+    my_pt<-pt.read(paste0("data/reference/pt/",name,".PitchTier"))
+})
+
+# Reference pitchtiers, interpolated by 0.01-second intervals
+ref_pts_interp <- lapply(ref_phrases, function(name) {
+    my_pt<-pt.read(paste0("data/reference/pt/",name,".PitchTier"))
+    interpolated <- pt.interpolate(my_pt, seq(0, my_pt$tmax, by=0.01))
+    interpolated$f <- hertz_to_semitones(interpolated$f, ref_freq)
+    interpolated
+})
+ 
+# All the reference Prosograms (stylized pitchtiers), not interpolated
+ref_psgs <- lapply(ref_phrases, function(name) {
+  my_pt<-pt.read(paste0("data/reference/prosogram_pt/", name, "_styl.PitchTier"))
+})
+
+# Reference Prosograms, interpolated by 0.01-second intervals
+ref_psgs_interp <- lapply(ref_phrases, function(name) {
+  my_pt<-pt.read(paste0("data/reference/prosogram_pt/", name, "_styl.PitchTier"))
+  interpolated <- pt.interpolate(my_pt, seq(0, my_pt$tmax, by=0.01))
+  interpolated$f <- hertz_to_semitones(interpolated$f,ref_freq)
+  interpolated
+})
+
+# Non-interpolated reference intensity tiers
+ref_its <- lapply(ref_phrases, function(name) {
+  my_it <- it.read(paste0("data/reference/intensity/", name, ".IntensityTier"))
+})
+
+# Reference intensity tiers, interpolated by 0.01-second intervals
+ref_its_interp <- lapply(ref_phrases, function(name) {
+  my_it <- it.read(paste0("data/reference/intensity/", name, ".IntensityTier"))
+  it.interpolate(my_it, seq(0, my_it$tmax, by=0.01))
+})
+
+# Get the times of each phrase
+ref_times <- do.call("rbind", lapply(ref_pts_interp, function(item) {
+  item$tmax
+}))[,1]
+
+# A tibble containing each phrase and its duration
+ref_info <- tibble(phrase=ref_phrases, duration=ref_times)
+
+```
+
+# Comparing Praat and Prosogram versions of the same phrase
+
+Very high correlation and low RMSE (around 1 semitone) between pitch curve and its stylization.
+
+```{r}
+library("wCorr") # for the weighted correlation function
+library("mltools") # for the weighted RMSE function
+
+get_weighted_corr_praat_psg <- function(index) {
+  praat_pitch <- ref_pts_interp[[index]]$f
+  prosogram_pitch <- ref_psgs_interp[[index]]$f
+  intensity <- ref_its_interp[[index]]$i
+  
+  wc <- weightedCorr(praat_pitch, prosogram_pitch, method = "Pearson", 
+               weights = intensity, ML = FALSE, fast = TRUE)
+  return(wc)
+}
+
+get_rmse_praat_psg <- function(index) {
+  praat_pitch <- ref_pts_interp[[index]]$f
+  prosogram_pitch <- ref_psgs_interp[[index]]$f
+  intensity <- ref_its_interp[[index]]$i
+  
+  r <- rmse(preds=praat_pitch, actuals=prosogram_pitch, weights=intensity)
+  return(r)
+}
+
+indices<-seq(1, 12)
+
+wcorr_praat_psg_refs <- do.call("rbind", lapply(indices, function(item) {
+  get_weighted_corr_praat_psg(item)
+}))[,1]
+
+rmse_praat_psg_refs <- do.call("rbind", lapply(indices, function(item) {
+  get_rmse_praat_psg(item)
+}))[,1]
+
+scores_praat_prosogram <- tibble(phrase=ref_phrases, corr.praat.psg=wcorr_praat_psg_refs,
+                                        rmse.praat.psg=rmse_praat_psg_refs)
+
+mean(scores_praat_prosogram$corr.praat.psg) #0.9485677
+sd(scores_praat_prosogram$corr.praat.psg) #0.03099698
+mean(scores_praat_prosogram$rmse.praat.psg) #1.110687
+sd(scores_praat_prosogram$rmse.praat.psg) #0.3209581
+
+print(as.matrix(scores_praat_prosogram), quote = FALSE)
+
+```
+
+# Comparing Prosograms between pairs of phrases
+
+Comparing both original and stylized pitch curves between pairs of phrases. In general, correlation is lower and RMSE is higher than comparison between the original and stylized pitch curve of the same phrase. Between some pairs (e.g. 2 and 2bis), correlation can still be quite high. RMSE is consistently higher by about 2 semitones.
+
+```{r}
+pbis <- c(2, 4, 6, 8, 10, 12)
+#ref_pairs<-tibble(pid=pbis-1,phrase=ref_phrases[pbis-1], pid_bis=pbis, phrase_bis=ref_phrases[pbis])
+
+psg_pairs_interp<-do.call("rbind", lapply(pbis, function(id) { 
+  psg1<-ref_psgs[[id]]
+  psg2<-ref_psgs[[id-1]]
+  
+  pt1<-ref_pts[[id]]
+  pt2<-ref_pts[[id-1]]
+  
+  tmax <- max(psg1$tmax, psg2$tmax)
+  len_to_interp <- seq(0, tmax, by=0.01) %>% length()
+  
+  psg1_interp<-pt.interpolate(psg1, seq(0, psg1$tmax, length=len_to_interp))
+  psg2_interp<-pt.interpolate(psg2, seq(0, psg2$tmax, length=len_to_interp))
+  
+  pt1_interp<-pt.interpolate(pt1,  seq(0, pt1$tmax, length=len_to_interp))
+  pt2_interp<-pt.interpolate(pt2,  seq(0, pt2$tmax, length=len_to_interp))
+  
+  it1<-ref_its[[id]]
+  it1_interp<-it.interpolate(it1, seq(0, it1$tmax, length=len_to_interp))
+  
+  f1_psg<- hertz_to_semitones(psg1_interp$f, ref_freq)
+  f2_psg<- hertz_to_semitones(psg2_interp$f, ref_freq)
+  f1_pt<- hertz_to_semitones(pt1_interp$f, ref_freq)
+  f2_pt<- hertz_to_semitones(pt2_interp$f, ref_freq)
+  
+  my_corr_psg<-weightedCorr(f1_psg, f2_psg, method = "Pearson", weights = it1_interp$i, ML = FALSE, fast = TRUE)
+  my_rmse_psg<-rmse(preds=f1_psg, actuals=f2_psg, weights=it1_interp$i)
+  
+  my_corr_pt<-weightedCorr(f1_pt, f2_pt, method = "Pearson", weights = it1_interp$i, ML = FALSE, fast = TRUE)
+  my_rmse_pt<-rmse(preds=f1_pt, actuals=f2_pt, weights=it1_interp$i)
+  
+  return(tibble(phrase=ref_phrases[[id-1]], phrase.bis=ref_phrases[[id]],
+                corr.psg=my_corr_psg, rmse.psg=my_rmse_psg, corr.pt=my_corr_pt, rmse.pt=my_rmse_pt))
+}))
+  
+mean(psg_pairs_interp$corr.psg) #0.5537139
+sd(psg_pairs_interp$corr.psg) #0.4369208
+
+mean(psg_pairs_interp$rmse.psg) # 4.040714
+sd(psg_pairs_interp$rmse.psg) #0.5109039
+
+print(as.matrix(psg_pairs_interp), quote = FALSE)
+```
+
+

@@ -1,0 +1,239 @@
+---
+title: "Comparing Subjects' Vocal Recording with Reference F0"
+output: html_notebook
+---
+
+# Prerequisites
+Run the first code section of 01-corpus-prep.Rmd
+
+# Load Subjects Voice Data
+
+```{r}
+# Files names of all PitchTier
+setwd("data/voice/pt")
+vpt_filenames <- dir(pattern="\\.PitchTier$")
+```
+
+
+```{r}
+library("rPraat")
+library("tidyverse")
+library("dtw")
+source("utils/hz2st.r")
+
+ref_freq <- 116.54
+
+# Function to load the interpolated pitchtier of each gesture
+# pt_name is the filename ending in .PitchTier
+get_voice_pt_interp <- function(pt_name) {
+  my_pt<-pt.read(paste0("data/voice/pt/", pt_name))
+  # Get the core name of the file, without extension
+  core_name<-str_split(pt_name, ".PitchTier")[[1]][1]
+  # Get the TextGrid name
+  tg_name <- paste0(core_name, "_auto.TextGrid")
+  # load the textgrid
+  my_tg<-tg.read(paste0("data/voice/tg/", tg_name))
+  # Get the start and end time of the vocalization within the file
+  start_time <- my_tg$syll$t2[1]
+  end_time <- tail(my_tg$syll$t1, 1)
+
+  interp<-pt.interpolate(my_pt, seq(start_time, end_time, by=0.01))
+  #convert frequency from hertz to semitones
+  interp$f <- hertz_to_semitones(interp$f, ref_freq)
+  
+  # Normalize by the mean
+  interp$f <- interp$f-mean(interp$f)
+  
+  return(interp)
+}
+
+# All the interpolated pitchtiers
+vpts_interp <- lapply(vpt_filenames, get_voice_pt_interp)
+
+# Raw filenames for voice files
+voices <- do.call("rbind", lapply(vpt_filenames, function(elt) {
+  str_split(elt, '_filtre.PitchTier')[[1]][1]
+}))[,1]
+
+# Info on voice files
+voice_data <- do.call("rbind", lapply(voices, function(elt) {
+  parts<-str_split(elt, '-')[[1]]
+  ref_phrase<-parts[3]
+  phrase_id <- str_split(ref_phrase, '_')[[1]][1]
+  tibble(subject=parts[1], type=parts[2], pid=phrase_id, order=parts[4], filename=elt, 
+         phrase=ref_phrase)
+})) %>% mutate(id = row_number())
+
+```
+
+# Prepare data for analysis 
+
+First, with timinig taken into account
+
+```{r}
+natives<-c("s4", "s5", "s7", "s8", "s9")
+
+# Given id of voice recording, returns the data for both the recording and its reference
+# for comparison and plotting. Output tibble includes:
+# percent_t - from 0 to 1 (for plotting) 
+# rec_t, rec_f - timestamps and frequency for recording
+# ref_t, ref_f, ref_i - timestamps, frequency, intensity for reference
+get_voice_comparison_data <- function(recording_id) {
+  #print(recording_id)
+  # For each vocal recording
+  my_record <- slice(voice_data, recording_id)
+  # Get the pitch tier of the recording 
+  my_record_pt <- vpts_interp[[recording_id]]
+  
+  # Get the TextGrid for the reference
+  my_ref_tg <- get_ref_tg(my_record$phrase)
+  
+  # Get the start and end of the voiced section as a percentage
+  total_duration<-tg.getTotalDuration(my_ref_tg)
+  start_percent <- my_ref_tg$syll$t2[1]/total_duration
+  end_percent <- tail(my_ref_tg$syll$t1, 1)/total_duration
+  
+  # Get the interpolated frequency data of the phrase
+  my_ref <- get_ref_pts_interp(my_record$phrase)
+  my_ref_length <- length(my_ref$f)
+  # Get the start and index of the reference phrase based on start/end percent from the textgrid
+  my_ref_start_index <- floor(start_percent * my_ref_length)
+  my_ref_end_index <- ceiling(end_percent * my_ref_length)
+  # Get the part of the reference to compare with the recording
+  my_ref_f <- my_ref$f[my_ref_start_index:my_ref_end_index]
+  my_ref_t <- my_ref$t[my_ref_start_index:my_ref_end_index]
+  
+  # Get the intensity too
+  my_ref_i <- get_ref_tsi(my_record$phrase)[my_ref_start_index:my_ref_end_index]
+  # Also get the prosogram f0 stylization for the reference
+  my_ref_f_psg <- get_ref_psgs_interp(my_record$phrase)$f[my_ref_start_index:my_ref_end_index]
+  
+  # Reinterpolate the recording based on the number of points in the new reference
+  my_record_interp2<-pt.interpolate(my_record_pt, seq(my_record_pt$t[1], tail(my_record_pt$t, 1), 
+                                               length.out = length(my_ref_f)))
+  
+  data_to_compare <- tibble(subject=my_record$subject, phrase=my_record$phrase, condition=my_record$type,
+                            percent_t = seq(0, 1, length.out = length(my_ref_f)), 
+                            rec_t = my_record_interp2$t, rec_f = my_record_interp2$f, 
+                            ref_t = my_ref_t, ref_f = my_ref_f, ref_f_psg = my_ref_f_psg, ref_i = my_ref_i)
+  return(data_to_compare)
+}
+
+# Put all the voice comparison data in a list so we don't have to regeneate it each time
+voice_comparison_data <- lapply(voice_data$id, get_voice_comparison_data)
+voice_comparison_data_tibble <- bind_rows(voice_comparison_data) %>% mutate(native = subject %in% natives) 
+
+```
+
+# Prepare no-timing data
+
+Using dynamic time warping
+
+```{r}
+aligned_voice_data <- lapply(voice_data$id, function(elt) {
+  my_record <- slice(voice_data, elt)
+  
+  data<-voice_comparison_data[[elt]]
+  recording<- data$rec_f
+  reference<-data$ref_f
+  intensity<-data$ref_i
+  # Alignement with original reference
+  alignment<-dtw(reference, recording, keep=TRUE, step=asymmetric, open.begin=TRUE)
+  
+  # Alignment with prosogram
+  reference_psg<-data$ref_f_psg
+  alignment_psg <- dtw(reference_psg, recording,keep=TRUE, step=asymmetric, open.begin=TRUE)
+  
+  aligned_data <- tibble(subject=my_record$subject, phrase=my_record$phrase, condition=my_record$type,
+                         percent_t = seq(0, 1, length.out = length(alignment$index1)),
+                         ref_f = reference[alignment$index1],
+                         ref_i= intensity[alignment$index1],
+                         rec_f = recording[alignment$index2],
+                         ref_f_psg = reference_psg[alignment_psg$index1],
+                         rec_f_psg = reference_psg[alignment_psg$index2],
+                         ref_i_psg = intensity[alignment_psg$index2])
+  aligned_data
+})
+
+aligned_voice_data_tibble <- bind_rows(aligned_voice_data) %>% mutate(native = subject %in% natives)  
+
+```
+
+
+## Comparisons with timing
+
+```{r}
+library("wCorr") # for weighted correlation
+library("mltools") # For weighted RMSE
+
+# Get correlation, comparing with both the original and the prosogram vesions
+corr_voice <- do.call("rbind", lapply(voice_data$id, function(elt) {
+  # Get the data to compare
+  data <- voice_comparison_data[[elt]]
+  weightedCorr(data$ref_f, data$rec_f, method = "Pearson", 
+                      weights = data$ref_i, ML = FALSE, fast = TRUE)
+}))[,1]
+
+corr_voice_psg <- do.call("rbind", lapply(voice_data$id, function(elt) {
+  # Get the data to compare
+  data <- voice_comparison_data[[elt]]
+  weightedCorr(data$ref_f_psg, data$rec_f, method = "Pearson", 
+                      weights = data$ref_i, ML = FALSE, fast = TRUE)
+}))[,1]
+
+#RSME
+rmse_voice <- do.call("rbind", lapply(voice_data$id, function(elt) {
+  # Get the data to compare
+  data <- voice_comparison_data[[elt]]
+  rmse(preds=data$ref_f, actuals=data$rec_f, weights=data$ref_i)
+}))[,1]
+
+rmse_voice_psg <- do.call("rbind", lapply(voice_data$id, function(elt) {
+  # Get the data to compare
+  data <- voice_comparison_data[[elt]]
+  rmse(preds=data$ref_f_psg, actuals=data$rec_f, weights=data$ref_i)
+}))[,1]
+
+voice_data <- voice_data %>% add_column(corr = corr_voice, corr_psg = corr_voice_psg,
+                                        rmse = rmse_voice, rmse_psg = rmse_voice_psg)
+
+```
+
+## Comparisons without timing
+```{r}
+
+# Get correlation, comparing with both the original and the prosogram vesions
+corr_voice_notiming <- do.call("rbind", lapply(voice_data$id, function(elt) {
+  # Get the data to compare
+  data <- aligned_voice_data[[elt]]
+  weightedCorr(data$ref_f, data$rec_f, method = "Pearson", 
+                      weights = data$ref_i, ML = FALSE, fast = TRUE)
+}))[,1]
+
+corr_voice_psg_notiming <- do.call("rbind", lapply(voice_data$id, function(elt) {
+  # Get the data to compare
+  data <- aligned_voice_data[[elt]]
+  weightedCorr(data$ref_f_psg, data$rec_f_psg, method = "Pearson", 
+                      weights = data$ref_i_psg, ML = FALSE, fast = TRUE)
+}))[,1]
+
+#RSME
+rmse_voice_notiming <- do.call("rbind", lapply(voice_data$id, function(elt) {
+  # Get the data to compare
+  data <- aligned_voice_data[[elt]]
+  rmse(preds=data$ref_f, actuals=data$rec_f, weights=data$ref_i)
+}))[,1]
+
+rmse_voice_psg_notiming <- do.call("rbind", lapply(voice_data$id, function(elt) {
+  # Get the data to compare
+  data <- aligned_voice_data[[elt]]
+  rmse(preds=data$ref_f_psg, actuals=data$rec_f, weights=data$ref_i)
+}))[,1]
+
+voice_data <- voice_data %>% add_column(corr_notiming = corr_voice_notiming, 
+                                        corr_psg_notiming = corr_voice_psg_notiming,
+                                        rmse_notiming = rmse_voice_notiming, 
+                                        rmse_psg_notiming = rmse_voice_psg_notiming)
+```
+
+

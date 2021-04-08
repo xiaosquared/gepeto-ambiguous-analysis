@@ -1,0 +1,159 @@
+---
+title: "Comparing Subjects' Gestures with Reference F0"
+output: html_notebook
+---
+
+# Prerequisites
+Run the first code section of 01-corpus-prep.Rmd
+
+# Load Gestures
+
+```{r}
+# Files names of all PitchTier
+setwd("data/gestures")
+gest_filenames <- dir(pattern="\\.gest$")
+```
+
+
+```{r}
+library("rjson")
+library("timetk")
+
+# Extract the reference phrase from the whole gesture name
+get_ref_name <- function(gest_name) {
+  return(str_split(gest_name, '-')[[1]][3])
+}
+
+# Finds the number of samples in the reference for the particular gesture
+get_num_samples <-function(gest_name) {
+# Find how many samples are in the ref file
+  ref_phrase <- get_ref_name(gest_name)  
+  return(length(get_ref_timestamps(ref_phrase)))
+}
+
+# Load gest data and convert time
+prep_gest<-function(gest) {
+  min_scrub <- gest$scrub[1]
+  max_scrub <- tail(gest$scrub, 1)
+    
+  # Convert time to percentage
+  max_time <- tail(gest$t_end, 1)
+  gest <- gest %>% mutate(percent=t_init/max_time) %>%
+             # Add another column for percent scaled to the scrub start and end values
+             mutate(percent_scaled = rescale(percent, to=c(min_scrub, max_scrub), from=c(0, 1)))  %>%
+             # rename t_init to t
+             rename(t = t_init) %>%
+             # only keep the columns we need
+             select(percent, t, f, scrub, percent_scaled)
+  
+  return(gest)
+}
+
+# args: data - tibble with columns: percent (% of way through signal) & f (frequency at that point), 
+# num_samples - # equally spaced points in outpt
+# returns: tibble with coluumns index & value. index has num_samples equally spaced points from 0 to 1
+# values are interplolated from f
+get_interpolated_data <- function(data, num_samples) {
+  # Add end points at 0 and 1 if they don't already exist, duplicating first and last available f value
+  if (! 0 %in% data$percent) {
+    data <- add_row(data, percent=0, t=0, f=data$f[1], scrub=data$scrub[1], .before=1)
+  }
+  if (! (1 %in% data$percent)) {
+    data <- add_row(data, percent=1, t=tail(data$t,1), f=tail(data$f, 1), scrub=tail(data$scrub, 1))
+  }
+          
+  # Create a tibble with all the points we are interested in, with NA values
+  sample_points <- tibble(percent=seq(0, 1, length.out=num_samples), t=NA, f=NA, scrub=NA) 
+  
+  # Add all the sample points whose percent value doesn't already exist in data
+  data2 <- bind_rows(data, filter(sample_points, !(percent %in% data$percent)))  %>%
+    # Then sort by scrub columns  
+    arrange(percent)
+  
+  # Transform into zoo object to fill the NAs with interpolated values
+  z <- read.zoo(data2) %>% na.approx %>%
+   tk_tbl(preserve_index=TRUE, rename_index="index") %>%
+   filter(index %in% sample_points$percent)
+  
+  return(z)
+}
+
+# args: data - tibble with columns: scrub (% of way through REFERENCE signal), 
+# f (frequency of ORIGINAL signal at that point), 
+# num_samples - # equally spaced points in outpt
+# returns: tibble with coluumns index & value. index has num_samples equally spaced points from the start and end of scrub, f is interpolated
+get_interpolated_data_scrub <- function(data, num_samples) {
+  # Get the starting and ending scrub values
+  start_scrub <- data$scrub[1]
+  end_scrub <- tail(data$scrub, 1)
+  
+  # Remove rows with duplicated scrub values
+  data<-data[!duplicated(data$scrub),]
+  
+  # Create tibble with all the points we are interested in
+  sample_points <- tibble(scrub=seq(start_scrub, end_scrub, length.out = num_samples), f=NA, percent=NA)
+  
+  # # Add all the sample points whose scrub value doesn't alread exist to data
+  data2 <- bind_rows(data, filter(sample_points, !(scrub %in% data$scrub))) %>%
+    # Then sort by scrub columns
+    arrange(scrub) %>% select(scrub, f, percent)
+
+  # # Transform into zoo object to fill the NAs with interpolated values
+  z <- read.zoo(data2) %>% na.approx %>%
+   tk_tbl(preserve_index=TRUE, rename_index="index") %>%
+   filter(index %in% sample_points$scrub)
+   
+  return(z)
+}
+
+
+# A vector with just the names of the phrases (w/o .json extension)
+gests <- do.call("rbind", lapply(gest_filenames, function(name) {
+  str_split(name, '.gest')[[1]][1]
+}))[,1]
+
+# Original gestures
+gest_originals <- lapply(gest_filenames, function(name) {
+  result <- rjson::fromJSON(file=paste0("data/gestures/", name)) 
+  result_tibble<-do.call("rbind", lapply(result, function(elt){
+    tibble(f=elt$f, scrub=elt$scrub, t_init=elt$t_init, t_end=elt$t_end)
+  }))
+  prep_gest(result_tibble)
+})
+
+  
+# Returns the index of the gesture
+get_gest_index <- function(gest_name) {
+  index <- match(gest_name, gests)
+  if (is.na(index)) { return(NULL) }
+  return(index)
+}
+
+# Interpolated time series data of f & scrub value
+gest_interps <- lapply(gests, function(elt) {
+  # Elt is the name of a gesture. We want to find its index first
+  index<-get_gest_index(elt)
+  
+  # In order to get the actual gesture data
+  gest_orig<-gest_originals[[index]]
+  
+  # Gets number of samples for the gest, which is computed from the reference
+  num_samples<-get_num_samples(elt)
+  
+  # Do the interpolation  
+  gest_interp<-get_interpolated_data(gest_orig, num_samples)
+  
+  return(gest_interp)
+})
+
+# Organize gestures into a Tibble
+gests_data <- do.call("rbind", lapply(gests, function(elt) {
+  parts<-str_split(elt, '-')[[1]]
+  ref_phrase <- parts[3]
+  phrase_id <- str_split(ref_phrase, '_')[[1]][1]
+  tibble(phrase=ref_phrase, pid=phrase_id, type=parts[2], subject=parts[4], order=parts[1], gest_name=elt)
+})) %>% mutate(id = row_number()) %>%
+  select(subject, type, pid, order,gest_name, phrase, id)
+```
+
+

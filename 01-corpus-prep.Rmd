@@ -10,6 +10,8 @@ There's also some comparison within the reference corpus to see the quantitative
 
 # Load assets for reference phrases
 
+This code section should be run before running code in 02-compare-vocal.Rmd and 03-compare-gestural.Rmd
+
 ```{r}
 library("tidyverse")
 library("rPraat") # to load Praat objects
@@ -64,6 +66,11 @@ ref_its_interp <- lapply(ref_phrases, function(name) {
   it.interpolate(my_it, seq(0, my_it$tmax, by=0.01))
 })
 
+# Put all the reference textgrids into a list
+ref_tgs <- lapply(ref_phrases, function(name) {
+  tg.read(paste0("data/reference/tg/", name, '_auto.TextGrid'))
+})
+
 # Get the times of each phrase
 ref_times <- do.call("rbind", lapply(ref_pts_interp, function(item) {
   item$tmax
@@ -72,7 +79,70 @@ ref_times <- do.call("rbind", lapply(ref_pts_interp, function(item) {
 # A tibble containing each phrase and its duration
 ref_info <- tibble(phrase=ref_phrases, duration=ref_times)
 
+###################################
+# Helper functions for comparison #
+###################################
+
+# Get the TextGrid
+get_ref_tg <- function(phrase_name) {
+  index<-match(phrase_name, ref_info$phrase)
+  if (is.na(index)) { return(NULL) }
+  return(ref_tgs[[index]])
+}
+
+# Gets the interpolated prosogram object
+get_ref_psgs_interp <- function(phrase_name) {
+  index<-match(phrase_name, ref_info$phrase)
+  if (is.na(index)) { return(NULL) }
+  return(ref_psgs_interp[[index]])
+}
+
+# Gets interpolated pitchtier for reference
+get_ref_pts_interp <- function(phrase_name) {
+  index<-match(phrase_name, ref_info$phrase)
+  if (is.na(index)) { return(NULL) }
+  return(ref_pts_interp[[index]])
+}
+
+# A function that gets the duration given the phrase name
+get_ref_duration <- function(phrase_name) {
+  index<-match(phrase_name, ref_info$phrase)
+  if (is.na(index)) { return(NULL) }
+  return(ref_info$duration[index])
+}
+
+# Get the times stamps for interpolation given the phrase name
+get_ref_timestamps <- function(phrase_name) {
+  index<-match(phrase_name, ref_info$phrase)
+  if (is.na(index)) { return(NULL) }
+  return(ref_pts_interp[[index]]$t)
+}
+
+# Get the interpolated frequency values given the phrase name
+# (frequency time series)
+get_ref_tsf <- function(phrase_name) {
+  index<-match(phrase_name, ref_info$phrase)
+  if (is.na(index)) { return(NULL) }
+  return(ref_pts_interp[[index]]$f)
+}
+
+# Get the interpolated prosogram frequency values given the phrase name
+# (prosogram frequency time series)
+get_ref_ptsf <- function(phrase_name) {
+  index<-match(phrase_name, ref_info$phrase)
+  if (is.na(index)) { return(NULL) }
+  return(ref_psgs_interp[[index]]$f)
+}
+
+# Get the interpolated intensity values given the phrase name
+# (intensity time series)
+get_ref_tsi <-function(phrase_name) {
+  index<-match(phrase_name, ref_info$phrase)
+  if (is.na(index)) { return(NULL) }
+  return(ref_its_interp[[index]]$i)
+}
 ```
+
 
 # Comparing Praat and Prosogram versions of the same phrase
 

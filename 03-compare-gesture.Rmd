@@ -13,7 +13,7 @@ Run the first code section of 01-corpus-prep.Rmd
 setwd("data/gestures")
 gest_filenames <- dir(pattern="\\.gest$")
 ```
-
+## Get listing of gestures
 
 ```{r}
 library("rjson")
@@ -156,4 +156,125 @@ gests_data <- do.call("rbind", lapply(gests, function(elt) {
   select(subject, type, pid, order,gest_name, phrase, id)
 ```
 
+## Prepare data for analysis
+
+```{r}
+get_gest_comparison_data <- function(gest_id) {
+  # Get the gesture from the list by ID
+  my_gest <- slice(gests_data, gest_id)  
+  
+  # Get the original data 
+  my_gest_data <- gest_originals[[gest_id]]
+  # Find the starting and ending scrub times
+  start_scrub <- my_gest_data$scrub[1]
+  end_scrub <- tail(my_gest_data$scrub, 1)
+
+  # Find the corresponding phrase for this gesture
+  my_ref <- get_ref_pts_interp(my_gest$phrase)
+  # Number of points in my_ref
+  my_ref_length <- length(my_ref$f)
+  # Get the start and index of the reference phrase based on the start and end scrub points
+  my_ref_start_index <- floor(start_scrub * my_ref_length)
+  my_ref_end_index <- ceiling(end_scrub * my_ref_length)
+  # Get the part of the reference to compare with the gesture
+  my_ref_f <- my_ref$f[my_ref_start_index:my_ref_end_index]
+  my_ref_t <- my_ref$t[my_ref_start_index:my_ref_end_index]
+  
+  # Get the intensity too
+  my_ref_i <- get_ref_tsi(my_gest$phrase)[my_ref_start_index:my_ref_end_index]
+  # Also get the prosogram f0 stylization for the reference
+  my_ref_f_psg <- get_ref_psgs_interp(my_gest$phrase)$f[my_ref_start_index:my_ref_end_index]
+  
+  # Now, interpolate the original gesture based on the number of points in the subset of the reference
+  my_gest_interp<-get_interpolated_data(my_gest_data, length(my_ref_f))
+  # A version that disregards the timing 
+  my_gest_interp_scrub<-get_interpolated_data_scrub(my_gest_data, length(my_ref_f))
+  
+  
+  # Put everything into a tibble
+  data_to_compare <- tibble(subject=my_gest$subject, phrase=my_gest$phrase, condition=my_gest$type,
+                            percent_t = seq(0, 1, length.out = length(my_ref_f)), 
+                            gest_t = my_gest_interp$t, gest_scrub = my_gest_interp$scrub, 
+                            gest_f = my_gest_interp$f, gest_f_scrub = my_gest_interp_scrub$f,
+                            ref_t = my_ref_t, ref_f = my_ref_f, ref_f_psg = my_ref_f_psg, ref_i = my_ref_i) %>%
+                    mutate(gest_f=gest_f-mean(gest_f), gest_f_scrub=gest_f_scrub-mean(gest_f_scrub))
+  return(data_to_compare)
+}
+
+gest_comparison_data <- lapply(gests_data$id, get_gest_comparison_data)
+gest_comparison_data_tibble <- bind_rows(gest_comparison_data) %>% mutate(native = subject %in% natives)    
+```
+
+# Comparing
+
+```{r}
+library("wCorr") # for weighted correlation
+library("mltools") # For weighted RMSE
+
+# Get correlation, comparing with both the original and the prosogram vesions
+corr_gest <- do.call("rbind", lapply(gests_data$id, function(elt) {
+  # Get the data to compare
+  data <- gest_comparison_data[[elt]]
+  weightedCorr(data$ref_f, data$gest_f, method = "Pearson", 
+                      weights = data$ref_i, ML = FALSE, fast = TRUE)
+}))[,1]
+
+
+# Compare with prosogram
+corr_gest_psg <- do.call("rbind", lapply(gests_data$id, function(elt) {
+  data <- gest_comparison_data[[elt]]
+  weightedCorr(data$ref_f_psg, data$gest_f, method = "Pearson", 
+                      weights = data$ref_i, ML = FALSE, fast = TRUE)
+}))[,1]
+
+# Compare with reference raw f0, disregarding timing
+corr_gest_notiming <- do.call("rbind", lapply(gests_data$id, function(elt) {
+  data <- gest_comparison_data[[elt]]
+  weightedCorr(data$ref_f, data$gest_f_scrub, method = "Pearson", 
+                      weights = data$ref_i, ML = FALSE, fast = TRUE)
+}))[,1]
+
+# Compare with prosogram, disregarding timing
+corr_gest_psg_notiming <- do.call("rbind", lapply(gests_data$id, function(elt) {
+  data <- gest_comparison_data[[elt]]
+  weightedCorr(data$ref_f_psg, data$gest_f_scrub, method = "Pearson", 
+                      weights = data$ref_i, ML = FALSE, fast = TRUE)
+}))[,1]
+
+#RSME
+
+rmse_gest <- do.call("rbind", lapply(gests_data$id, function(elt) {
+  # Get the data to compare
+  data <- gest_comparison_data[[elt]]
+  rmse(preds=data$ref_f, actuals=data$gest_f, weights=data$ref_i)
+}))[,1]
+
+# Compare with prosogram
+rmse_gest_psg <- do.call("rbind", lapply(gests_data$id, function(elt) {
+  # Get the data to compare
+  data <- gest_comparison_data[[elt]]
+  rmse(preds=data$ref_f_psg, actuals=data$gest_f, weights=data$ref_i)
+}))[,1]
+
+rmse_gest_notiming <- do.call("rbind", lapply(gests_data$id, function(elt) {
+  # Get the data to compare
+  data <- gest_comparison_data[[elt]]
+  rmse(preds=data$ref_f, actuals=data$gest_f_scrub, weights=data$ref_i)
+}))[,1]
+
+# Compare with prosogram
+rmse_gest_psg_notiming <- do.call("rbind", lapply(gests_data$id, function(elt) {
+  # Get the data to compare
+  data <- gest_comparison_data[[elt]]
+  rmse(preds=data$ref_f_psg, actuals=data$gest_f_scrub, weights=data$ref_i)
+}))[,1]
+
+
+gests_data <- gests_data %>% 
+              add_column(corr = corr_gest, corr_psg = corr_gest_psg, 
+                         corr_notiming = corr_gest_notiming, corr_psg_notiming = corr_gest_psg_notiming,
+                         rmse = rmse_gest, rmse_psg = rmse_gest_psg, 
+                         rmse_notiming = rmse_gest_notiming, rmse_psg_notiming = rmse_gest_psg_notiming)
+
+```
 

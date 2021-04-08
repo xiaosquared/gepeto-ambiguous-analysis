@@ -14,6 +14,7 @@ setwd("data/voice/pt")
 vpt_filenames <- dir(pattern="\\.PitchTier$")
 ```
 
+## Get listing of vocal recordings
 
 ```{r}
 library("rPraat")
@@ -66,9 +67,9 @@ voice_data <- do.call("rbind", lapply(voices, function(elt) {
 
 ```
 
-# Prepare data for analysis 
+## Prepare data for analysis 
 
-First, with timinig taken into account
+### First, with timinig taken into account
 
 ```{r}
 natives<-c("s4", "s5", "s7", "s8", "s9")
@@ -125,7 +126,7 @@ voice_comparison_data_tibble <- bind_rows(voice_comparison_data) %>% mutate(nati
 
 ```
 
-# Prepare no-timing data
+### Prepare no-timing data
 
 Using dynamic time warping
 

@@ -1,0 +1,240 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Load all Perceptual Data
+
+```{r}
+library('tidyverse')
+library('rjson')
+
+natives <- c('s4', 's5', 's7', 's8', 's9')
+
+# Load subject info
+path="data/perceptual/"
+
+get_one_auditor_info <- function(id) {
+  filename<-paste0("a", id, "_info.json")
+  file<-fromJSON(file=paste0(path,filename))
+  auditor_age<-substr(file[[2]]$responses, 9, 10)
+  auditor_sex<-substr(file[[3]]$responses, 10, 10)
+  auditor_lang<-substr(file[[4]]$responses, 12, 13)
+  auditor_code<-substr(file[[5]]$responses, 10, 17)
+  tibble(id=id,
+         age=auditor_age,
+         female=ifelse(auditor_sex == 'f', TRUE, FALSE),
+         native=ifelse(auditor_lang=='fr', TRUE, FALSE),
+         code=auditor_code)
+}
+
+auditor_info_all<-do.call("rbind", lapply(seq(1, 38, 1), get_one_auditor_info)) 
+# Id of non-native
+non_native <- auditor_info_all %>% filter(native==FALSE) %>% pull(id) 
+
+###########################################################################
+
+# Function to get ratings
+get_one_auditor_results <- function(id) {
+  filename<-paste0("a", id, "_ratings.json")
+  file<-fromJSON(file=paste0(path,filename))
+  do.call("rbind", lapply(file, function(elt) {
+  tibble(pid = elt$phrase, condition=elt$condition, 
+         subject=elt$subject, button=elt$button_pressed)})) %>% 
+    # get rid of the times where the stimuli was repeated
+    filter(button <= 1) %>%
+    # Get the choice the subject made
+    mutate(choice=ifelse(button==0, '10', '10bis')) %>%
+    # Add a column based on whether response was correct based on the intended phrase
+    mutate(correct=ifelse(choice==pid, TRUE, FALSE)) %>%
+    # Add a column for type of stimuli
+    mutate(type=ifelse(condition=="guide" | condition=="blind", "gest", "voice")) %>%
+    # Add a column for whether subject is native
+    mutate(native=(subject %in% natives)) %>%
+    select(pid, choice, correct, subject, condition, type, native)  
+}
+
+ids<-1:38
+ids<-ids[!ids %in% 36] # remove the id of non-native auditor
+ratings<-do.call("rbind", lapply(ids, get_one_auditor_results))
+```
+
+# Add ratings to quantitative scores for each stimuli
+
+```{r}
+# Load scorers for phrase 10 and 10bis
+all_scores <- readRDS("data/scores/all_scores.rds")
+scores10 <- all_scores %>% filter(pid=='10' | pid=='10bis')
+
+# Compute average rating for each stimuli
+avg_ratings<- sapply(seq(1, 80), function(elt){
+  stim<-slice(scores10, elt)
+  mean(filter(ratings, subject==stim$subject, condition==stim$condition, pid==stim$pid)$correct)
+})
+
+# Add average ratings as new column to scores
+scores10 <- bind_cols(scores10, avg.correct=avg_ratings)
+```
+
+
+# Whether stimulii scored significantly better than chance
+
+```{r}
+chanceLevel<-0.5
+get_sig_diff_chance <- function(row) {
+  nAnswersTotal <- ratings %>% filter(subject==row$subject, condition==row$condition, pid==row$pid) %>% nrow()
+  nCorrectAnswers <- ratings %>% 
+    filter(subject==row$subject, condition==row$condition, pid==row$pid, correct==TRUE) %>% nrow()  
+  resultatsPropTest <- prop.test(nCorrectAnswers,nAnswersTotal,chanceLevel)
+  chiSquaredValue <- resultatsPropTest$statistic
+  degreesFreedom <- resultatsPropTest$parameter
+  pValue <- resultatsPropTest$p.value
+  significantlyDifferentFromChance <- ifelse(pValue<.05, TRUE, FALSE)
+  return(significantlyDifferentFromChance)
+}
+
+scores10dc <- scores10 %>% select(subject, condition, pid, native, avg.correct) %>%
+    rowwise() %>% 
+    do(row = as_data_frame(.)) %>%
+    mutate(diff.chance = get_sig_diff_chance(row)) %>% 
+    unnest()
+
+
+scores10dc %>% filter(condition=="guide", diff.chance==TRUE) # 14/20
+
+scores10dc %>% filter(condition=="guide", diff.chance==FALSE) # 6/20
+
+scores10dc %>% filter(condition=="blind", diff.chance==TRUE) # 12/20
+scores10dc %>% filter(condition=="blind", diff.chance==FALSE ) # 8/20
+
+scores10dc %>% filter(condition=="lecture", diff.chance==TRUE, avg.correct>0.5) #17/20
+reading_below <- scores10dc %>% filter(condition=="lecture", diff.chance==FALSE | avg.correct<0.5) #3
+
+scores10dc %>% filter(condition=="lecture", avg.correct<0.5) #2
+
+scores10dc %>% filter(condition=="imitation", diff.chance==TRUE) #20/20
+```
+
+
+# Comparisons between modalities for subject/phrase pairing
+
+```{r}
+
+# Put scores in wide format
+scores10_wide<-scores10 %>% pivot_wider(id_cols=c(subject, condition, pid), 
+                                    names_from=condition, values_from=avg.correct)
+
+# Some functions for comparing between modalities:
+get_reading_guide_comparison <- function(row) {
+  n_answers_reading <- ratings %>% filter(subject==row$subject, condition=='lecture', pid==row$pid) %>% nrow()
+  correct_reading <- ratings %>% filter(subject==row$subject, condition=='lecture',
+                                          pid==row$pid, correct==TRUE) %>% nrow()
+
+  n_answers_guide <- ratings %>% filter(subject==row$subject, condition=='guide', pid==row$pid) %>% nrow()
+  correct_guide <- ratings %>% filter(subject==row$subject, condition=='guide',
+                                          pid==row$pid, correct==TRUE) %>% nrow()
+  #results_prop_test <- prop.test(x=c(correct_reading, correct_guide), n=c(n_answers_reading, n_answers_guide))
+  results_prop_test <- fisher.test(matrix(c(correct_reading, n_answers_reading-correct_reading,
+                                            correct_guide, n_answers_guide-correct_guide), ncol=2))
+  chiSquaredValue <- results_prop_test$statistic
+  degreesFreedom <- results_prop_test$parameter
+  pvalue<-results_prop_test$p.value
+  significant <- ifelse(pvalue <.05, TRUE, FALSE)
+  return (significant)
+}
+
+get_vocal_im_guide_comparison <- function(row) {
+  n_answers_im <- ratings %>% filter(subject==row$subject, condition=='imitation', pid==row$pid) %>% nrow()
+  correct_im <- ratings %>% filter(subject==row$subject, condition=='imitation',
+                                          pid==row$pid, correct==TRUE) %>% nrow()
+
+  n_answers_guide <- ratings %>% filter(subject==row$subject, condition=='guide', pid==row$pid) %>% nrow()
+  correct_guide <- ratings %>% filter(subject==row$subject, condition=='guide',
+                                          pid==row$pid, correct==TRUE) %>% nrow()
+  #results_prop_test <- prop.test(x=c(correct_reading, correct_guide), n=c(n_answers_reading, n_answers_guide))
+  results_prop_test <- fisher.test(matrix(c(correct_im, n_answers_im -correct_im,
+                                            correct_guide, n_answers_guide-correct_guide), ncol=2))
+  chiSquaredValue <- results_prop_test$statistic
+  degreesFreedom <- results_prop_test$parameter
+  pvalue<-results_prop_test$p.value
+  significant <- ifelse(pvalue <.05, TRUE, FALSE)
+  return (significant)
+}
+
+get_chiro_comparison <- function(row) {
+  n_answers_im <- ratings %>% filter(subject==row$subject, condition=='blind', pid==row$pid) %>% nrow()
+  correct_im <- ratings %>% filter(subject==row$subject, condition=='blind',
+                                          pid==row$pid, correct==TRUE) %>% nrow()
+
+  n_answers_guide <- ratings %>% filter(subject==row$subject, condition=='guide', pid==row$pid) %>% nrow()
+  correct_guide <- ratings %>% filter(subject==row$subject, condition=='guide',
+                                          pid==row$pid, correct==TRUE) %>% nrow()
+  #results_prop_test <- prop.test(x=c(correct_reading, correct_guide), n=c(n_answers_reading, n_answers_guide))
+  results_prop_test <- fisher.test(matrix(c(correct_im, n_answers_im -correct_im,
+                                            correct_guide, n_answers_guide-correct_guide), ncol=2))
+  chiSquaredValue <- results_prop_test$statistic
+  degreesFreedom <- results_prop_test$parameter
+  pvalue<-results_prop_test$p.value
+  significant <- ifelse(pvalue <.05, TRUE, FALSE)
+  return (significant)
+}
+
+#############################
+
+scores10_wide %>% rowwise() %>% 
+    do(row = as_data_frame(.)) %>%
+    mutate(lg.diff = get_reading_guide_comparison(row)) %>% 
+    unnest()
+
+scores10_wide %>% rowwise() %>% 
+    do(row = as_data_frame(.)) %>%
+    mutate(ig.diff = get_vocal_im_guide_comparison(row)) %>% 
+    unnest()
+
+scores10_wide %>% rowwise() %>% 
+    do(row = as_data_frame(.)) %>%
+    mutate(bg.diff = get_chiro_comparison(row)) %>% 
+    unnest()
+
+
+guide_better <- scores10_wide %>% filter(guide > lecture)
+guide_worse <- scores10_wide %>% filter(guide < lecture)
+
+
+guide_better<-guide_better %>% rowwise() %>% 
+    do(row = as_data_frame(.)) %>%
+    mutate(lg.diff = get_reading_guide_comparison(row)) %>% 
+    unnest()
+
+guide_worse %>% rowwise() %>% 
+    do(row = as_data_frame(.)) %>%
+    mutate(lg.diff = get_reading_guide_comparison(row)) %>% 
+    unnest()
+
+#guided performed significantly better than blind for 4 stimuli, 3 from non-natives
+
+
+```
+
+
+# Aggregate plot
+
+```{r}
+my_plot <- 
+       ggplot(data=scores10, 
+       mapping=aes(x=condition, y=avg.correct*100))+ 
+       geom_boxplot(aes(color=as_factor(native))) +
+       scale_color_discrete(name="", labels=c("Non-native", "Native")) +
+       scale_y_continuous(breaks=seq(0, 100, by=10)) +
+       labs(y="% Correctly identified", x="Condition") +
+       scale_x_discrete(labels = c('Non-Guided\nchiro.','Guided\nchiro.','Vocal\nimitation', 'Vocal\nreading'))+
+       theme_bw(base_size=25) +
+       theme(legend.text=element_text(size=18),
+                axis.title=element_text(size=20))
+
+plot_filename<-"perceptive2.png"
+ggsave(plot_filename, plot = my_plot, device='png', path="../data/21_02-study/_plots_interspeech", 
+            width = 10, height = 4, units="in", dpi=150)
+
+```
+

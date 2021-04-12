@@ -1,0 +1,263 @@
+---
+title: "Linear Models"
+output: html_notebook
+---
+
+# Prerequisites
+
+Run the first part in 04-plots.Rmd to load the data. Load required libraries.
+
+```{r}
+library("tidyverse")
+library("brms")
+```
+
+
+## Voice imitation vs Guided Chironomic Imitation, no timing
+
+Following the analysis of Chironomic Stylization of Intonation, D'Alessandro et al. 2011, where timing was not considered.
+
+### Correlation
+```{r}
+priors_corr <- c(set_prior("normal(0, 10)", class="Intercept"),
+            set_prior("normal(0, 10)", class="b"),
+	          set_prior("cauchy(0, 10)", class="sd"),
+	          set_prior("cauchy(0, 10)", class="sigma"),
+	          set_prior("lkj(2)", class="cor"))
+
+priors_corr2 <- c(set_prior("normal(0, 10)", class="Intercept"),
+            set_prior("normal(0, 10)", class="b"),
+	          set_prior("cauchy(0, 10)", class="sd"),
+	          set_prior("cauchy(0, 10)", class="sigma"))
+
+# Random intercepts and random slopes, 
+# interaction term between condition (vocal 0.5 vs gestural -0.5) and native
+cnt_im1 <- brm(formula = corr_nt_z ~ vocal*native + (1+ vocal|subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_corr,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+
+### WINNING MODEL
+# Random intercepts and random slopes, no interaction between condition and native
+cnt_im2 <- brm(formula = corr_nt_z ~ vocal + native + (1+ vocal|subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_corr,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+
+
+# Intercept 1.80, 0.11 error, 1.58 2.03
+
+# Random intercepts only, no interaction between condition and native
+cnt_im3 <- brm(formula = corr_nt_z ~ vocal + native + (1 + subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_corr2,
+            iter=10000, warmup=2000,
+            chains=2, control=list(adapt_delta=0.99, max_treedepth = 15), 
+            save_pars=save_pars(all=TRUE))
+
+
+bayes_factor(cnt_im1, cnt_im2) #.05954 (values below 0.1 favor simpler model)
+bayes_factor(cnt_im2, cnt_im3) # 959383630104957
+
+# Null model Native vs Non-native
+cnt_im4 <- brm(formula = corr_nt_z ~ native + (1+ vocal|subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_corr,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+
+bayes_factor(cnt_im4, cnt_im2) # 32.57227
+
+
+# Null model, condition only
+cnt_im5 <- brm(formula = corr_nt_z ~ vocal + (1+ vocal|subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_corr,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+
+bayes_factor(cnt_im5, cnt_im2) # 75.566
+
+# Comparin with LOO
+loo_cnt_im <- loo(cnt_im1, cnt_im2, cnt_im4, cnt_im5)
+loo_cnt_im
+```
+
+### RMSE, no timing
+
+```{r}
+priors_rmse <- c(set_prior("normal(0, 10)", class="Intercept"),
+            set_prior("normal(0, 10)", class="b"),
+	          set_prior("cauchy(0, 10)", class="sd"),
+	          set_prior("cauchy(0, 10)", class="sigma"),
+	          set_prior("lkj(2)", class="cor"))
+
+priors_rmse2 <- c(set_prior("normal(0, 10)", class="Intercept"),
+            set_prior("normal(0, 10)", class="b"),
+	          set_prior("cauchy(0, 10)", class="sd"),
+	          set_prior("cauchy(0, 10)", class="sigma"))
+
+priors_rmse3 <- c(set_prior("normal(0, 10)", class="Intercept"),
+	          set_prior("cauchy(0, 10)", class="sd"),
+	          set_prior("cauchy(0, 10)", class="sigma"),
+	          set_prior("lkj(2)", class="cor"))
+
+# Random intercepts and random slopes, 
+# interaction term between condition (vocal 0.5 vs gestural -0.5) and native
+rnt_im1 <- brm(formula = log_rnt ~ vocal*native + (1+ vocal|subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_rmse,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+
+# Random intercepts and random slopes, no interaction between condition and native
+rnt_im2 <- brm(formula = log_rnt ~ vocal+native + (1+ vocal|subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_rmse,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+bayes_factor(rnt_im1, rnt_im2) # 0.03845
+
+# Random intercepts only, no interaction between condition and native
+rnt_im3 <- brm(formula = log_rnt ~ vocal+native + (1+subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_rmse2,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+bayes_factor(rnt_im2, rnt_im3) #1126115362816631.50000
+
+# Null model Native vs Non-native
+rnt_im4 <- brm(formula = log_rnt ~ native + (1+ vocal|subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_rmse,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+bayes_factor(rnt_im4, rnt_im2) #5.4517
+
+# Null model, condition only
+rnt_im5 <- brm(formula = log_rnt ~ vocal + (1+ vocal|subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_rmse,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+bayes_factor(rnt_im5, rnt_im2) #96.445
+
+rnt_im6 <- brm(formula = log_rnt ~ 1 + (1+ vocal|subject) + (1|pid), 
+            data=data_im, family=gaussian(), prior=priors_rmse3,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+bayes_factor(rnt_im5, rnt_im6) #.18
+
+
+# Comparin with LOO
+loo_rnt_im <- loo(rnt_im1, rnt_im2, rnt_im4, rnt_im5, rnt_im6)
+```
+
+## Chironomic Imitation - Guided & Non-Guided
+
+Comparing blind and guided gestures and seeing the effect of timing on the difficulty of the task.
+
+### Correlation, with timing considered
+```{r}
+priors_corr <- c(set_prior("normal(0, 10)", class="Intercept"),
+            set_prior("normal(0, 10)", class="b"),
+	          set_prior("cauchy(0, 10)", class="sd"),
+	          set_prior("cauchy(0, 10)", class="sigma"),
+	          set_prior("lkj(2)", class="cor"))
+
+priors_corr2 <- c(set_prior("normal(0, 10)", class="Intercept"),
+            set_prior("normal(0, 10)", class="b"),
+	          set_prior("cauchy(0, 10)", class="sd"),
+	          set_prior("cauchy(0, 10)", class="sigma"))
+
+# Random intercepts and random slopes, 
+# interaction term between condition (vocal 0.5 vs gestural -0.5) and native
+corr_ch1 <- brm(formula = corr_z ~ guide*native + (1+ guide|subject) + (1|pid), 
+            data=data_chiro, family=gaussian(), prior=priors_corr,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+
+# Random intercepts and random slopes, no interaction between condition and native
+corr_ch2 <- brm(formula = corr_z ~ guide+ native + (1+ guide|subject) + (1|pid), 
+            data=data_chiro, family=gaussian(), prior=priors_corr,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+
+# Random intercepts only, no interaction between condition and native
+corr_ch3 <- brm(formula = corr_z ~ guide + native + (1 + subject) + (1|pid), 
+            data=data_chiro, family=gaussian(), prior=priors_corr2,
+            iter=10000, warmup=2000,
+            chains=2, control=list(adapt_delta=0.99, max_treedepth = 15), 
+            save_pars=save_pars(all=TRUE))
+
+bf12<-bayes_factor(corr_ch1, corr_ch2) # .295
+bf23<-bayes_factor(corr_ch2, corr_ch3) # 36.1496 - strong evidence that more complex model is better
+
+# Null model Native vs Non-native
+corr_ch4 <- brm(formula = corr_z ~ native + (1+ guide|subject) + (1|pid), 
+            data=data_chiro, family=gaussian(), prior=priors_corr,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+bf42<-bayes_factor(corr_ch4, corr_ch2) #1.61497
+
+# Null model, condition only
+corr_ch5 <- brm(formula = corr_z ~ guide + (1+ guide|subject) + (1|pid), 
+            data=data_chiro, family=gaussian(), prior=priors_corr,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+bf52<-bayes_factor(corr_ch5, corr_ch2) #13.2018
+
+loo_corr_ch<-loo(corr_ch1, corr_ch2, corr_ch4, corr_ch5)
+
+```
+
+### RMSE, with timing considered - guided vs non-gudied
+```{r}
+priors_rmse <- c(set_prior("normal(0, 10)", class="Intercept"),
+            set_prior("normal(0, 10)", class="b"),
+	          set_prior("cauchy(0, 10)", class="sd"),
+	          set_prior("cauchy(0, 10)", class="sigma"),
+	          set_prior("lkj(2)", class="cor"))
+
+priors_rmse2 <- c(set_prior("normal(0, 10)", class="Intercept"),
+            set_prior("normal(0, 10)", class="b"),
+	          set_prior("cauchy(0, 10)", class="sd"),
+	          set_prior("cauchy(0, 10)", class="sigma"))
+
+priors_rmse3 <- c(set_prior("normal(0, 10)", class="Intercept"),
+	          set_prior("cauchy(0, 10)", class="sd"),
+	          set_prior("cauchy(0, 10)", class="sigma"),
+	          set_prior("lkj(2)", class="cor"))
+
+# Random intercepts and random slopes, 
+# interaction term between condition (vocal 0.5 vs gestural -0.5) and native
+r_ch1 <- brm(formula = log_r ~ guide*native + (1+ guide|subject) + (1|pid), 
+            data=data_chiro, family=gaussian(), prior=priors_rmse,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+
+# Random intercepts and random slopes, no interaction between condition and native
+r_ch2 <- brm(formula = log_r ~ guide+ native + (1+ guide|subject) + (1|pid), 
+            data=data_chiro, family=gaussian(), prior=priors_rmse,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+
+# Random intercepts only, no interaction between condition and native
+r_ch3 <- brm(formula = log_r ~ guide + native + (1 + subject) + (1|pid), 
+            data=data_chiro, family=gaussian(), prior=priors_rmse2,
+            iter=10000, warmup=2000,
+            chains=2, control=list(adapt_delta=0.99, max_treedepth = 15), 
+            save_pars=save_pars(all=TRUE))
+
+bfr12<-bayes_factor(r_ch1, r_ch2)
+bfr23<-bayes_factor(r_ch2, r_ch3)
+
+# Null model Native vs Non-native
+r_ch4 <- brm(formula = log_r ~ native + (1+ guide|subject) + (1|pid), 
+            data=data_chiro, family=gaussian(), prior=priors_rmse,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+bfr42<-bayes_factor(r_ch4, r_ch2)
+
+# Null model, condition only
+r_ch5 <- brm(formula = log_r ~ guide + (1+ guide|subject) + (1|pid), 
+            data=data_chiro, family=gaussian(), prior=priors_rmse,
+            iter=10000, warmup=2000, 
+            chains=2, control=list(adapt_delta=0.99), save_pars=save_pars(all=TRUE))
+bfr52<-bayes_factor(r_ch5, r_ch2) 
+
+loo_r_ch<-loo(r_ch1, r_ch2, r_ch4, r_ch5)
+
+```

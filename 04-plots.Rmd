@@ -1,0 +1,194 @@
+---
+title: "Plots"
+output: html_notebook
+---
+
+# Prerequisites
+
+Scores for voice and gesture data are saved in data/scores/voice_scores.rds data/scores/gest_scores.rds from running scripts in 02-compare-vocal.rmd and 03-compare-gesture.rmd.
+
+The scores from prosogram comparisons are kept for gesture data, and the scores from the pitch tier comparisons are kept for the voice data. These are saved in data/scores/gest_scores_psg.rds and data/scores/voice_scores_pt.rds.
+
+# Prepare the data
+
+```{r}
+# Load the score data
+voice_data <- readRDS("data/scores/voice_scores.rds")
+gests_data <- readRDS("data/scores/gest_scores.rds")
+
+# Subjects and types
+subjects <- read_tsv("data/subjects.tsv")
+natives <- subjects %>% filter(lvl_french == "N")
+learners <- subjects %>% filter(lvl_french != "N")
+musicians <- subjects %>% filter(music == "Y")
+nonmus <- subjects %>% filter(music != "Y")
+
+# Add some info
+gests_data <- gests_data %>% 
+              mutate(native=ifelse(subject %in% natives$id, 0.5, -0.5)) %>%
+              mutate(music=ifelse(subject %in% musicians$id, 0.5, -0.5)) %>%
+              mutate(condition=type) %>% mutate(type="gesture")
+
+# For gestures, we care most about comparison with the prosogram
+gests_data_modified <- gests_data %>%
+              mutate(corr=corr_psg, rmse=rmse_psg, 
+                     corr_nt=corr_psg_notiming, rmse_nt=rmse_psg_notiming) %>%
+              select(subject, native, music, condition, type, pid, order, phrase, id, 
+                     corr, rmse, corr_nt, rmse_nt)
+              
+# Add some info.
+voice_data <- voice_data %>% 
+              mutate(native=ifelse(subject %in% natives$id, 0.5, -0.5)) %>%
+              mutate(music=ifelse(subject %in% musicians$id, 0.5, -0.5)) %>%
+              mutate(condition=type) %>% mutate(type="voice") 
+
+
+# For voice, we care most about comparison with original curve                
+voice_data_modified <- voice_data %>%
+              mutate(corr_nt=corr_notiming, rmse_nt=rmse_notiming) %>%
+              select(subject, native, music,condition, type, pid, order, phrase, id, 
+                     corr, rmse, corr_nt, rmse_nt)
+  
+all_data <- bind_rows(gests_data_modified, voice_data_modified)
+
+saveRDS(all_data, "all_scores.rds")
+saveRDS(gests_data_modified, "gest_scores_psg.rds")
+#saveRDS(voice_data_modified, "voice_scores_pt.rds")
+
+# Vocal & Chironomic guided imitation
+data_im <- all_data %>% 
+           filter(condition == "imitation" | condition == "guide") %>% 
+           mutate(vocal=ifelse(condition=="imitation", 0.5, -0.5)) %>%
+           mutate(corr_nt_z = fisherz(corr_nt), corr_z = fisherz(corr), 
+                  log_r = log(rmse), log_rnt= log(rmse_nt)) %>%
+          mutate(pid = fct_relevel(pid, "2", "2bis", "7", "7bis", "8", "8bis",
+                           "10", "10bis", "11", "11bis", "21", "21bis"))
+
+# Chironomic imitation, guide/not contrast coded
+data_chiro <- gests_data_modified %>% 
+           mutate(guide=ifelse(condition=="guide", 0.5, -0.5)) %>%
+           mutate(corr_nt_z = fisherz(corr_nt), corr_z = fisherz(corr), 
+                    log_r = log(rmse), log_rnt= log(rmse_nt)) %>%
+          mutate(pid = fct_relevel(pid, "2", "2bis", "7", "7bis", "8", "8bis",
+                           "10", "10bis", "11", "11bis", "21", "21bis"))
+
+```
+
+# Plots; by phrase
+
+```{r}
+# Switch the order of voice & gesture so that guided timing/no-timing is lined up
+data_im2 <- all_data %>% 
+           filter(condition == "imitation" | condition == "guide") %>% 
+           mutate(vocal=ifelse(condition=="imitation", -0.5, 0.5)) %>%
+           mutate(corr_nt_z = fisherz(corr_nt), corr_z = fisherz(corr), 
+                  log_r = log(rmse), log_rnt= log(rmse_nt)) %>%
+          mutate(pid = fct_relevel(pid, "2", "2bis", "7", "7bis", "8", "8bis",
+                           "10", "10bis", "11", "11bis", "21", "21bis"),
+                 subject=fct_relevel(subject, "s1", "s2", "s3", "s4", "s5", "s6",
+                           "s7", "s8", "s9", "s10"))
+# BY PHRASE
+
+
+corr_by_phrase <- 
+       ggplot(data=data_im2, aes(x=pid, y=corr_nt)) + 
+       geom_boxplot(aes(color=as_factor(vocal)), show.legend = FALSE, lwd=1.25, fatten=2) +
+       geom_boxplot(data=data_chiro, aes(x=pid, y=corr, color=condition), 
+                    alpha=0.4, show.legend = FALSE,lwd=1.25,fatten=2) +
+       #scale_color_discrete(name="",labels=c("Voice,\nno timing", "Guided,\nno timing", 
+      #                               "Non-guided,\nwith timing", "Guided,\nwith timing")) +
+             scale_y_continuous(breaks=seq(-0.8, 1, by=0.2)) +
+             labs(subtitle="Correlation scores by phrase", x="Phrase", y="Correlation") + 
+  
+             theme_bw(base_size=27) +
+             theme(legend.text=element_text(size=18),
+                   axis.title=element_text(size=20))
+
+rmse_by_phrase <-
+       ggplot(data=data_im2, aes(x=pid, y=rmse_nt)) + 
+       geom_boxplot(aes(color=as_factor(vocal)), show.legend = FALSE, lwd=1.25,fatten=2) +
+       geom_boxplot(data=data_chiro, aes(x=pid, y=rmse, color=condition), 
+                    alpha=0.4, show.legend = FALSE,lwd=1.25,fatten=2) +
+       #scale_color_discrete(name="",labels=c("Voice,\nno timing", "Guided,\nno timing", 
+      #                             "Non-guided,\nwith timing", "Guided,\nwith timing")) +
+             scale_y_continuous(breaks=seq(0, 6, by=1)) +
+             labs(subtitle="RMSE scores by phrase", x="Phrase", y="RMSE") +
+             theme_bw(base_size=27) +
+             theme(legend.text=element_text(size=18),
+                axis.title=element_text(size=20))
+
+my_plot<-grid.arrange(corr_by_phrase, rmse_by_phrase,ncol=1)
+plot_filename<-"scores_by_phrase2.png"
+#ggsave(plot_filename, plot = my_plot, device='png', path="data/plots/", width = 12, height = 8)
+
+```
+
+# By subject
+
+```{r}
+
+corr_learners <- ggplot(data=data_im2%>%filter(native=="-0.5"), aes(x=subject, y=corr_nt)) + 
+       geom_boxplot(aes(color=as_factor(vocal)), show.legend = FALSE, lwd=1.25,fatten=2) +
+       geom_boxplot(data=data_chiro%>%filter(native=="-0.5"),
+                    aes(x=subject, y=corr, color=condition), alpha=0.4, show.legend = FALSE, lwd=1.25,fatten=2) +
+       scale_color_discrete(name="",labels=c("Voice,\nno timing", "Guided,\nno timing", 
+                                     "Non-guided,\nwith timing", "Guided,\nwith timing")) +
+             scale_y_continuous(breaks=seq(-0.8, 1, by=0.2)) +
+             labs(subtitle="By subject: Non-native", x="Subject", y="") +
+             theme_bw(base_size=27) +
+             theme(legend.text=element_text(size=18),
+                   axis.title=element_text(size=20))
+
+
+corr_native <- ggplot(data=data_im2%>%filter(native=="0.5"), aes(x=subject, y=corr_nt)) + 
+       geom_boxplot(aes(color=as_factor(vocal)), show.legend = FALSE, lwd=1.25,fatten=2) +
+       geom_boxplot(data=data_chiro%>%filter(native=="0.5"),
+                    aes(x=subject, y=corr, color=condition), alpha=0.4, show.legend = FALSE, lwd=1.25,fatten=2) +
+
+       #scale_color_discrete(name="",labels=c("Voice,\nno timing", "Guided,\nno timing", 
+        #                             "Non-guided,\nwith timing", "Guided,\nwith timing")) +
+             scale_y_continuous(breaks=seq(-0.8, 1, by=0.2)) +
+             labs(subtitle="Native", x="Subject", y="") +
+             theme_bw(base_size=27) +
+             theme(legend.text=element_text(size=18),
+                   axis.title=element_text(size=20))
+
+rmse_learners <- 
+      ggplot(data=data_im2%>%filter(native=="-0.5"), aes(x=subject, y=rmse_nt)) + 
+       geom_boxplot(aes(color=as_factor(vocal)), show.legend = FALSE, lwd=1.25,fatten=2) +
+       geom_boxplot(data=data_chiro%>%filter(native=="-0.5"),
+                    aes(x=subject, y=rmse, color=condition), alpha=0.4, show.legend = FALSE, lwd=1.25,fatten=2) +
+       #scale_color_discrete(name="",labels=c("Voice,\nno timing", "Guided,\nno timing", 
+        #                             "Non-guided,\nwith timing", "Guided,\nwith timing")) +
+             scale_y_continuous(breaks=seq(0, 8, by=1)) +
+             labs(subtitle="By subject: Non-native", x="Subject", y="") +
+             theme_bw(base_size=27) +
+             theme(legend.text=element_text(size=18),
+                   axis.title=element_text(size=20))
+
+rmse_native <- ggplot(data=data_im2%>%filter(native=="0.5"), aes(x=subject, y=rmse_nt)) + 
+       geom_boxplot(aes(color=as_factor(vocal)), show.legend = FALSE, lwd=1.25,fatten=2) +
+       geom_boxplot(data=data_chiro%>%filter(native=="0.5"),
+                    aes(x=subject, y=rmse, color=condition), alpha=0.4, show.legend = FALSE, lwd=1.25,fatten=2) +
+
+       #scale_color_discrete(name="",labels=c("Voice,\nno timing", "Guided,\nno timing", 
+        #                             "Non-guided,\nwith timing", "Guided,\nwith timing")) +
+             scale_y_continuous(breaks=seq(0, 8, by=1)) +
+             labs(subtitle="Native", x="Subject", y="") +
+             theme_bw(base_size=27) +
+             theme(legend.text=element_text(size=18),
+                   axis.title=element_text(size=20))
+
+my_plot2<-grid.arrange(corr_learners, corr_native, rmse_learners, rmse_native, ncol=2)
+plot_filename2<-"scores_by_subject2.png"
+#ggsave(plot_filename2, plot = my_plot2, device='png', path="data/plots/", width = 12, height = 8)
+
+```
+
+
+# For models
+```{r}
+
+```
+
+

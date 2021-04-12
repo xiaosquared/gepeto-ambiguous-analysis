@@ -1,0 +1,11 @@
+id	age	gender	hand	lvl_french	native_lang	music	music_time	phonetics
+s1	41	M	R	C	Cantonais	N	0	DUPALF  
+s2	40	F	R	B	Portuguais	N		DUPALF   
+s3	29	F	R	C	portugais	N		DUPALF
+s4	46	F	L	N	Français	N		Etudiante en orthophonie
+s5	37	F	R	N	Français	Y	10	étudiante en orthophonie (2ème année)
+s6	22	F	R	C	chinois	Y	16/1.5	DUPALF / Sci lang
+s7	20	F	R	N	français	N		L3 sciences du langage
+s8	24	F	L	N	Freenech	Y	6	L1 orthophonie
+s9	20	F	L	N	français	Y	10	l1 orthophonie
+s10	48	F	R	C	Slovene	N		3 semestres à la fondation Robert de Sorbonne
